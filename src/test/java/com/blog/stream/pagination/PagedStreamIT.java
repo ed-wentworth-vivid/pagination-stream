@@ -10,14 +10,14 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
 
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Supplier;
+import java.util.function.Function;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 import static java.util.stream.Collectors.toList;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -26,22 +26,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(classes = IntegrationTestApplication.class)
 public class PagedStreamIT {
 
+    public static final int ITEM_COUNT = 100;
+    public static final int PAGE_SIZE = 7;
+
     @Autowired
     private UserRepository userRepository;
 
     @Before
-    public void setUp() throws Exception {
+    public void setUp() {
         userRepository.deleteAll();
     }
 
     @Test
-    public void pagedStream_parallel_IteratesOverWholeResultSet() throws Exception {
-        List<User> testUsers = createTestUsers(100);
-
-        Stream<User> userStream = PaginationUtils.pagedStream(userRepository.pageFetcher(), 7, 100);
+    public void pagedStream_parallel_IteratesOverWholeResultSet() {
+        List<User> testUsers = createTestUsers(ITEM_COUNT);
 
         Set<Thread> threads = Sets.newHashSet();
-        List<Long> streamedUserIds = userStream.parallel()
+        List<Long> streamedUserIds = PageSpliterator.create(ITEM_COUNT, PAGE_SIZE, userRepository.pageFetcher(), userRepository.itemExtractor()).stream()
+                .parallel()
                 .peek(user -> threads.add(Thread.currentThread()))
                 .map(User::getId)
                 .collect(toList());
@@ -58,14 +60,13 @@ public class PagedStreamIT {
     }
 
     @Test
-    public void pagedStream_sequential_IteratesOverWholeResultSet() throws Exception {
-        List<User> testUsers = createTestUsers(100);
-
-        Stream<User> userStream = PaginationUtils.pagedStream(userRepository.pageFetcher(), 7, 100);
+    public void pagedStream_sequential_IteratesOverWholeResultSet() {
+        List<User> testUsers = createTestUsers(ITEM_COUNT);
 
         Set<Thread> threads = Sets.newHashSet();
 
-        List<Long> streamedUserIds = userStream.sequential()
+        List<Long> streamedUserIds = PageSpliterator.create(ITEM_COUNT, PAGE_SIZE, userRepository.pageFetcher(), userRepository.itemExtractor()).stream()
+                .sequential()
                 .peek(user -> threads.add(Thread.currentThread()))
                 .map(User::getId)
                 .collect(toList());
@@ -84,21 +85,20 @@ public class PagedStreamIT {
 
     @SuppressWarnings("ResultOfMethodCallIgnored")
     @Test
-    public void pagedStream_CountSupplier_NotCalledUntilTerminalMethod() throws Exception {
-        createTestUsers(10);
+    public void pagedStream_CountSupplier_NotCalledUntilTerminalMethod() {
+        int count = 10;
+        createTestUsers(count);
 
         AtomicInteger supplierCalledTimes = new AtomicInteger();
-        Supplier<Integer> countSupplier = () -> {
+        Function<PageRequest, Integer> countSupplier = (p) -> {
             supplierCalledTimes.getAndIncrement();
-            return 10;
+            return count;
         };
 
-        Stream<User> userStream = PaginationUtils.pagedStream(userRepository.pageFetcher(), 7, countSupplier);
-
         assertThat(supplierCalledTimes.get())
-                .isEqualTo(0);
+                .isZero();
 
-        userStream.count();
+        PageSpliterator.create(count, 7, userRepository.pageFetcher(), userRepository.itemExtractor(), countSupplier).stream().count();
 
         assertThat(supplierCalledTimes.get())
                 .isEqualTo(1);
@@ -106,13 +106,12 @@ public class PagedStreamIT {
 
 
     @Test
-    public void prefetchPageStream_parallel_IteratesOverWholeResultSet() throws Exception {
-        List<User> testUsers = createTestUsers(100);
-
-        Stream<User> userStream = PaginationUtils.prefetchPageStream(userRepository.pageFetcher(), 7);
+    public void prefetchPageStream_parallel_IteratesOverWholeResultSet() {
+        List<User> testUsers = createTestUsers(ITEM_COUNT);
 
         Set<Thread> threads = Sets.newHashSet();
-        List<Long> streamedUserIds = userStream.parallel()
+        List<Long> streamedUserIds = PageSpliterator.create(ITEM_COUNT, PAGE_SIZE, userRepository.pageFetcher(), userRepository.itemExtractor(), userRepository.pageCountExtractor()).stream()
+                .parallel()
                 .peek(user -> threads.add(Thread.currentThread()))
                 .map(User::getId)
                 .collect(toList());
@@ -129,14 +128,13 @@ public class PagedStreamIT {
     }
 
     @Test
-    public void prefetchPageStream_sequential_IteratesOverWholeResultSet() throws Exception {
+    public void prefetchPageStream_sequential_IteratesOverWholeResultSet() {
         List<User> testUsers = createTestUsers(100);
-
-        Stream<User> userStream = PaginationUtils.prefetchPageStream(userRepository.pageFetcher(), 7);
 
         Set<Thread> threads = Sets.newHashSet();
 
-        List<Long> streamedUserIds = userStream.sequential()
+        List<Long> streamedUserIds = PageSpliterator.create(ITEM_COUNT, PAGE_SIZE, userRepository.pageFetcher(), userRepository.itemExtractor(), userRepository.pageCountExtractor()).stream()
+                .sequential()
                 .peek(user -> threads.add(Thread.currentThread()))
                 .map(User::getId)
                 .collect(toList());

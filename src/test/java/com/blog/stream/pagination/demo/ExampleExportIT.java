@@ -1,7 +1,7 @@
 package com.blog.stream.pagination.demo;
 
 
-import com.blog.stream.pagination.PaginationUtils;
+import com.blog.stream.pagination.PageSpliterator;
 import com.blog.stream.pagination.fixture.IntegrationTestApplication;
 import com.blog.stream.pagination.fixture.User;
 import com.blog.stream.pagination.fixture.UserRepository;
@@ -20,7 +20,6 @@ import java.nio.file.Files;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 import static java.util.stream.Collectors.toList;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,27 +28,29 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(classes = IntegrationTestApplication.class)
 public class ExampleExportIT {
 
+    public static final int ITEM_COUNT = 100;
+    public static final int PAGE_SIZE = 7;
+
     @Rule
-    public TemporaryFolder temporaryFolder = new TemporaryFolder();
+    public final TemporaryFolder temporaryFolder = new TemporaryFolder();
 
     @Autowired
     private UserRepository userRepository;
 
     @Before
-    public void setUp() throws Exception {
+    public void setUp() {
         userRepository.deleteAll();
     }
 
     @Test
     public void example_parallel_ExportingWithLazyPaginatedStreams() throws Exception {
-        createTestUsers(100);
-        Stream<User> userStream = PaginationUtils.pagedStream(userRepository.pageFetcher(), 7, 100);
+        createTestUsers(ITEM_COUNT);
 
         File file = temporaryFolder.newFile();
         try (FileOutputStream outputStream = new FileOutputStream(file)) {
             Exporter exporter = Exporter.create(outputStream);
 
-            userStream
+            PageSpliterator.create(ITEM_COUNT, PAGE_SIZE, userRepository.pageFetcher(), userRepository.itemExtractor()).stream()
                     .parallel()
                     .map(UserExport::new)
                     .forEach(exporter::exportUser);
@@ -59,9 +60,7 @@ public class ExampleExportIT {
                 .collect(toList());
 
         assertThat(export)
-                .hasSize(100);
-
-        assertThat(export)
+                .hasSize(100)
                 .containsOnlyOnce(
                         "AndroidInstance1,INDEX_1,2001-01-02",
                         "AndroidInstance87,INDEX_87,2001-03-29",
@@ -72,14 +71,13 @@ public class ExampleExportIT {
 
     @Test
     public void example_sequential_ExportingWithLazyPaginatedStreams() throws Exception {
-        createTestUsers(100);
-        Stream<User> userStream = PaginationUtils.pagedStream(userRepository.pageFetcher(), 7, 100);
+        createTestUsers(ITEM_COUNT);
 
         File file = temporaryFolder.newFile();
         try (FileOutputStream outputStream = new FileOutputStream(file)) {
             Exporter exporter = Exporter.create(outputStream);
 
-            userStream
+            PageSpliterator.create(ITEM_COUNT, PAGE_SIZE, userRepository.pageFetcher(), userRepository.itemExtractor()).stream()
                     .sequential()
                     .map(UserExport::new)
                     .forEach(exporter::exportUser);
@@ -89,9 +87,7 @@ public class ExampleExportIT {
                 .collect(toList());
 
         assertThat(export)
-                .hasSize(100);
-
-        assertThat(export)
+                .hasSize(100)
                 .startsWith(
                         "AndroidInstance0,INDEX_0,2001-01-01",
                         "AndroidInstance1,INDEX_1,2001-01-02",
